@@ -1,0 +1,46 @@
+{
+  // ============================================================================
+  // RAG_SIMPLE CONFIGURATION FILE - TEMPLATE
+  // ============================================================================
+  // Bu dosyayı settings.json olarak kopyalayın ve değerleri kendi ortamınıza göre düzenleyin.
+  // ============================================================================
+
+  "embedding": {
+    "model_name": "BAAI/bge-m3",
+    "device": "cpu",
+    "chat_device": "cpu",
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "batch_size": 16
+  },
+
+  "lm_studio": {
+    "base_url": "http://localhost:1234",
+    "timeout": 600
+  },
+
+  "retrieval": {
+    "top_k": 30
+  },
+
+  "generation": {
+    "system_prompt": "Sen PDF dokümanlarına dayanarak yardımcı olan bir asistansın. Verilen bağlam bilgilerine dayanarak soruları cevapla.",
+    "max_tokens": 32768,
+    "temperature": 0.1
+  },
+
+  "index": {
+    "output_path": "indexes/pdf_index"
+  },
+
+  "agentic_rag": {
+    "mode": "agentic",
+    "max_iterations": 5,
+    "min_relevant_chunks": 2,
+    "use_colpali_vision": false
+  },
+
+  "features": {
+    "debug_mode": false
+  }
+}

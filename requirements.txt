@@ -1,0 +1,39 @@
+# rag_agentic — çalışma zamanı bağımlılıkları
+# PyTorch (CUDA/ROCm): https://pytorch.org — uyumlu wheel ile kurmanız önerilir.
+# poppler-utils: pdf2image için sistem paketi (örn. sudo apt install poppler-utils)
+
+# Ayarlar ve HTTP
+json5>=0.13.0
+requests>=2.31.0
+
+# Arayüz
+rich>=13.0.0
+
+# Sayısal / vektör indeks
+numpy>=1.26.0
+faiss-cpu>=1.8.0
+
+# Embedding (BGE-m3 vb.) — torch ile birlikte kurulur
+torch>=2.4.0
+sentence-transformers>=3.0.0
+transformers>=4.40.0
+huggingface_hub>=0.24.0
+safetensors>=0.4.0
+
+# PDF metin çıkarma ve chunk
+pypdf>=4.0.0
+langchain-text-splitters>=0.2.0
+
+# ColPali: sayfa PNG + MaxSim (colpali_engine import adı)
+colpali-engine>=0.3.0
+pdf2image>=1.17.0
+Pillow>=10.0.0
+
+# ODT dışa aktarma
+odfpy>=1.4.1
+
+# Web Arayüzü (GUI)
+chainlit>=1.0.0
+
+# İsteğe bağlı: ColQwen GPU quantization (bitsandbytes kurulu değilse atlanır)
+# bitsandbytes>=0.43.0

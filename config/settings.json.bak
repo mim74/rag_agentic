@@ -1,0 +1,186 @@
+{
+  // ============================================================================
+  // RAG_SIMPLE CONFIGURATION FILE
+  // ============================================================================
+  // Version: 1.0
+  // Syntax: JSON5 (supports comments, trailing commas)
+  // Documentation: See README.md for detailed parameter explanations
+  // ============================================================================
+
+  // Embedding Model Configuration
+  // ============================================================================
+  "embedding": {
+    // Model identifier from HuggingFace or local path
+    // Alternatives:
+    //   - "sentence-transformers/all-MiniLM-L6-v2" (fast, lightweight, English-focused)
+    //   - "BAAI/bge-m3" (multilingual, better quality, slower)
+    //   - "intfloat/multilingual-e5-large" (high quality, multilingual)
+    "model_name": "models/BAAI--bge-m3",
+    
+    // Compute device: "auto", "cpu", "cuda", "cuda:0", "cuda:1"
+    // "auto" = Automatically detect best device
+    // "cuda" = Use first available GPU
+    // "cuda:0", "cuda:1" = Use specific GPU by index
+    // "cpu" = Force CPU usage
+    "device": "cpu",
+    
+    // GPU type preference for multi-GPU systems (optional)
+    // Values: "amd" or "nvidia"
+    // Useful when you have both AMD and NVIDIA GPUs
+    // Example: "amd" to prefer AMD Radeon GPU over NVIDIA
+    // Leave null to use default (first available GPU)
+    "prefer_gpu_type": "amd",
+    
+    // GPU index to use (optional)
+    // Specify which GPU to use when multiple GPUs are available
+    // Values: 0, 1, 2, etc.
+    // Leave null to use prefer_gpu_type selection or default GPU
+    // "gpu_index": null,
+    
+    // Device for chat (query embedding) - after indexing completes
+    // "cpu" = Move model to CPU after indexing (frees GPU for LM Studio)
+    // "auto" = Keep on same device as indexing
+    // "cuda", "cuda:1" = Specific GPU for chat
+    // Recommendation: "cpu" if GPU memory is limited, "auto" for speed
+    "chat_device": "cpu",
+    
+    // Text chunk size in characters (range: 256-2048 recommended)
+    // Larger chunks: more context, fewer chunks, less precise retrieval
+    // Smaller chunks: more precise, more chunks, less context per chunk
+    "chunk_size": 1000,
+    
+    // Character overlap between consecutive chunks (range: 0-500 recommended)
+    // Prevents information loss at chunk boundaries
+    // Recommended: 10-20% of chunk_size
+    "chunk_overlap": 200,
+    
+    // Number of texts to embed in parallel (range: 1-128)
+    // Higher values: faster processing, more memory usage
+    // Adjust based on available RAM and model size
+    // NOTE: BAAI/bge-m3 is larger than MiniLM - start with 16-32
+    // Increase if GPU memory allows (try 64 if you have 6GB+ VRAM)
+    "batch_size": 16
+  },
+  
+  // LM Studio Server Configuration
+  // ============================================================================
+  "lm_studio": {
+    // OpenAI-compatible API endpoint
+    // Default: "http://localhost:1234"
+    // For remote servers: "http://<ip>:<port>"
+    // SECURITY: Use HTTPS for production and avoid exposing to public networks
+    "base_url": "http://localhost:1234",
+    
+    // Request timeout in seconds (range: 30-600)
+    // Longer timeouts for larger models or complex queries
+    // Consider: model size, generation length, hardware speed
+    "timeout": 240
+    
+    // Optional: API key for authentication (if required)
+    // BEST PRACTICE: Use environment variable instead
+    // "api_key": "${LM_STUDIO_API_KEY}"
+    
+    // Optional: Default model to use (if multiple models loaded)
+    // "model": "local-model-name"
+  },
+  
+  // Retrieval Configuration
+  // ============================================================================
+  "retrieval": {
+    // Number of most relevant chunks to retrieve (range: 1-50)
+    // Higher values: more context, slower generation, potential noise
+    // Lower values: faster, less context, might miss relevant info
+    // Recommended starting points:
+    //   - Simple Q&A: 3-5
+    //   - Complex analysis: 10-15
+    //   - Comprehensive review: 20-30
+    "top_k": 80
+    
+    // Optional: Minimum similarity threshold (range: 0.0-1.0)
+    // Filters out chunks below this score (0=most lenient, 1=most strict)
+    // "min_similarity": 0.3,
+    
+    // Optional: Reranking strategy
+    // "rerank": false,
+    // "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  },
+  
+  // Generation Configuration
+  // ============================================================================
+  "generation": {
+    // System prompt - defines AI assistant behavior and context
+    // Tips: Be specific, provide clear instructions, set tone/style
+    // Language: Turkish (matches user's expected interaction language)
+    "system_prompt": "Sen PDF dokumanlarina dayanarak yardimci olan bir asistansin. Verilen baglam bilgilerine dayanarak sorulari cevapla. Eger cevap baglamda yoksa, bunu acikca belirt ve spekulasyon yapma. Her zaman Turkce cevap ver. Ayn icerigi tekrar etme ve kisa, oz cevaplar ver.",
+    
+    // Maximum tokens to generate (range: 256-32768, model dependent)
+    // Higher values: longer responses, slower generation, more compute
+    // Consider your model's context window and response needs
+    // Common values:
+    //   - Short answers: 512-1024
+    //   - Medium answers: 2048-4096
+    //   - Long-form: 8192+
+    "max_tokens": 8192,
+    
+    // Sampling temperature (range: 0.0-2.0)
+    // 0.0: Deterministic, factual, conservative
+    // 0.1-0.3: Focused, consistent (recommended for RAG)
+    // 0.7-0.9: Creative, varied
+    // 1.0+: Very creative, potentially inconsistent
+    "temperature": 0.2,
+    
+    // Optional: Additional sampling parameters
+    "top_p": 0.9,           // Nucleus sampling (range: 0.0-1.0)
+    "top_k": 40,            // Top-k sampling (range: 1-100)
+    "frequency_penalty": 0.3, // Penalize frequent tokens (range: -2.0-2.0)
+    "presence_penalty": 0.3,  // Penalize existing tokens (range: -2.0-2.0)
+    "repeat_penalty": 1.3    // Repetition penalty (range: 1.0-2.0)
+    
+    // Optional: Stop sequences to prevent repetition
+    "stop": ["</s>", "[DONE]"]
+  },
+  
+  // Index Storage Configuration
+  // ============================================================================
+  "index": {
+    // Output path for index files (without extension)
+    // Will generate: <output_path>.index and <output_path>.metadata
+    // Use relative paths from project root
+    "output_path": "indexes/pdf_index",
+    
+    // Optional: Index format/backend
+    // "backend": "faiss",  // Options: "faiss", "annoy", "hnswlib"
+    
+    // Optional: Index persistence settings
+    // "auto_save": true,
+    // "save_interval": 100  // Save every N documents
+  },
+  
+  // Optional: Logging Configuration
+  // ============================================================================
+  // "logging": {
+  //   "level": "INFO",      // DEBUG, INFO, WARNING, ERROR, CRITICAL
+  //   "file": "logs/rag_simple.log",
+  //   "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+  //   "max_file_size": "10MB",
+  //   "backup_count": 5
+  // },
+  
+  // Optional: Performance Tuning
+  // ============================================================================
+  // "performance": {
+  //   "num_workers": 4,           // Parallel processing workers
+  //   "prefetch_batches": 2,      // Number of batches to prefetch
+  //   "cache_embeddings": true,   // Cache embeddings in memory
+  //   "cache_size_mb": 512        // Max cache size
+  // },
+  
+  // Optional: Feature Flags
+  // ============================================================================
+  "features": {
+    "enable_telemetry": false,
+    "enable_caching": true,
+    "enable_reranking": false,
+    "debug_mode": false
+  }
+}
