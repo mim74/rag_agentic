@@ -22,6 +22,7 @@ from indexer import (
     build_index,
     save_index,
     load_index,
+    merge_indexes,
     update_index_incremental,
     sync_full_directory_manifest,
 )
@@ -46,30 +47,21 @@ def load_settings() -> Dict[str, Any]:
         return json5.load(f)
 
 
-def initialize_system(config: Dict[str, Any]) -> tuple:
-    """Sistemi başlat - embedding model ve index yükle/oluştur"""
-    
-    # Embedding modeli (HF hub / ~/.cache/huggingface; çevrimdışı: local_files_only veya HF_HUB_OFFLINE=1)
-    emb_config = config["embedding"]
-    emb_local = resolve_hf_local_files_only(emb_config.get("local_files_only"))
-    embedding_model = EmbeddingModel(
-        model_name=emb_config["model_name"],
-        device=emb_config["device"],
-        prefer_gpu_type=emb_config.get("prefer_gpu_type"),
-        gpu_index=emb_config.get("gpu_index"),
-        local_files_only=emb_local,
-    )
-    
-    # Index yolu (proje köküne göre)
-    index_path = PROJECT_ROOT / config["index"]["output_path"]
+def _build_or_update_index(
+    document_dir: Path,
+    index_path: Path,
+    embedding_model,
+    emb_config: Dict[str, Any],
+):
+    """
+    Tek bir dizin için index oluştur veya güncelle.
+    (index, metadata) döndürür.
+    """
     index_file = Path(str(index_path) + ".index")
-    document_dir = PROJECT_ROOT / "pdfs"
 
-    # Index var mı kontrol et
     if index_file.exists():
-        console.print("[cyan]📂 Mevcut index yükleniyor...[/cyan]")
+        console.print(f"[cyan]📂 Index yükleniyor: {index_path.name}...[/cyan]")
         index, metadata = load_index(index_path)
-        # Yeni eklenen belgeleri tespit edip index'e ekle
         if document_dir.exists():
             index, metadata, added = update_index_incremental(
                 document_dir=document_dir,
@@ -83,27 +75,78 @@ def initialize_system(config: Dict[str, Any]) -> tuple:
             )
             if added > 0:
                 save_index(index, metadata, index_path)
-                console.print(f"[green]✅ Index güncellendi: {added} yeni chunk eklendi.[/green]\n")
-    else:
-        console.print("[yellow]⚠️  Index bulunamadı, yeni index oluşturuluyor...[/yellow]\n")
-        
-        if not document_dir.exists():
-            console.print(f"[red]❌ Belge klasörü bulunamadı: {document_dir}[/red]")
-            sys.exit(1)
-        
+                console.print(f"[green]✅ {index_path.name} güncellendi: +{added} chunk[/green]\n")
+    elif document_dir.exists() and any(document_dir.rglob("*.*")):
+        console.print(f"[yellow]⚠️  Index yok, oluşturuluyor: {index_path.name}...[/yellow]\n")
         index, metadata = build_index(
             document_dir=document_dir,
             embedding_model=embedding_model,
             chunk_size=emb_config["chunk_size"],
             chunk_overlap=emb_config["chunk_overlap"],
-            batch_size=emb_config["batch_size"]
+            batch_size=emb_config["batch_size"],
         )
-        
-        # Index'i kaydet
         save_index(index, metadata, index_path)
-        if document_dir.exists():
-            sync_full_directory_manifest(document_dir, index_path)
+        sync_full_directory_manifest(document_dir, index_path)
         console.print()
+    else:
+        console.print(f"[dim]ℹ️  Belge dizini boş, boş index: {index_path.name}[/dim]")
+        import faiss as _faiss
+        dim = embedding_model.model.get_sentence_embedding_dimension()
+        index = _faiss.IndexFlatIP(dim)
+        metadata = []
+
+    return index, metadata
+
+
+def initialize_system(
+    config: Dict[str, Any],
+    document_dir: Optional[Path] = None,
+    index_path: Optional[Path] = None,
+    shared_document_dir: Optional[Path] = None,
+    shared_index_path: Optional[Path] = None,
+    embedding_model=None,
+) -> tuple:
+    """
+    Sistemi başlat — embedding model ve index yükle/oluştur.
+
+    embedding_model verilirse yeniden oluşturulmaz (cache'den aktarılır).
+    document_dir / index_path verilirse kullanıcıya özel dizinler kullanılır.
+    shared_* parametreleri verilirse paylaşımlı index ile birleştirilir.
+    Hiçbiri verilmezse proje kökündeki docs/ ve settings'teki index yolu kullanılır.
+    """
+    emb_config = config["embedding"]
+
+    # Embedding modeli: dışarıdan geçirilmemişse oluştur
+    if embedding_model is None:
+        emb_local = resolve_hf_local_files_only(emb_config.get("local_files_only"))
+        embedding_model = EmbeddingModel(
+            model_name=emb_config["model_name"],
+            device=emb_config["device"],
+            prefer_gpu_type=emb_config.get("prefer_gpu_type"),
+            gpu_index=emb_config.get("gpu_index"),
+            local_files_only=emb_local,
+        )
+
+    # Yol çözümlemesi
+    if document_dir is None:
+        document_dir = PROJECT_ROOT / "docs"
+    if index_path is None:
+        index_path = PROJECT_ROOT / config["index"]["output_path"]
+
+    # Kullanıcı indexi
+    index, metadata = _build_or_update_index(
+        document_dir, index_path, embedding_model, emb_config
+    )
+
+    # Paylaşımlı index birleştirme
+    if shared_document_dir is not None and shared_index_path is not None:
+        s_index, s_meta = _build_or_update_index(
+            shared_document_dir, shared_index_path, embedding_model, emb_config
+        )
+        if s_index.ntotal > 0:
+            console.print("[cyan]🔗 Paylaşımlı index birleştiriliyor...[/cyan]")
+            index, metadata = merge_indexes([index, s_index], [metadata, s_meta])
+            console.print(f"[green]✅ Birleşik index: {index.ntotal} vektör[/green]\n")
 
     # Chat device ayarına göre model'i taşı
     chat_device = emb_config.get("chat_device", "auto")
@@ -171,7 +214,7 @@ def _load_colpali_model_and_index(config: Dict[str, Any]) -> tuple:
         needs_build = True
 
     if needs_build:
-        document_dir = PROJECT_ROOT / "pdfs"
+        document_dir = PROJECT_ROOT / "docs"
         if not document_dir.exists():
             console.print(f"[red]❌ Belge klasörü bulunamadı: {document_dir}[/red]")
             sys.exit(1)

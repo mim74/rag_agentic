@@ -6,3 +6,6 @@ exports/
 indexes/*
 page_images/*
 pdfs/*
+docs/users/
+docs/shared/
+data/users.json

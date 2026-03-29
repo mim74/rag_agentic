@@ -389,7 +389,14 @@ def agentic_rag(
         
         # Progress callback varsa çağır
         if progress_callback:
-            progress_callback(agent_response, action)
+            try:
+                progress_callback(agent_response, action)
+            except Exception as callback_exc:
+                logger.warning(
+                    "Progress callback hatası (iterasyon %d): %s",
+                    iteration,
+                    callback_exc,
+                )
         
         # Action'a göre işlem yap
         

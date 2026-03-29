@@ -1,6 +1,6 @@
 """
 Index oluşturma ve kaydetme modülü.
-PDF'leri yükler, embedding'e çevirir ve FAISS index'i oluşturur.
+Belgeleri yükler, embedding'e çevirir ve FAISS index'i oluşturur.
 """
 
 import json
@@ -14,7 +14,11 @@ from embedding import EmbeddingModel
 
 
 def _iter_supported_documents(document_dir: Path) -> List[Path]:
-    return sorted([*document_dir.rglob("*.pdf"), *document_dir.rglob("*.odt")])
+    return sorted([
+        *document_dir.rglob("*.pdf"),
+        *document_dir.rglob("*.odt"),
+        *document_dir.rglob("*.docx"),
+    ])
 
 
 def _document_rel_key(document_dir: Path, document_path: Path) -> str:
@@ -260,6 +264,32 @@ def load_index(index_path: Path) -> tuple[faiss.Index, List[dict]]:
     print(f"✅ Metadata yüklendi: {len(metadata)} chunk\n")
     
     return index, metadata
+
+
+def merge_indexes(
+    indexes: List[faiss.Index],
+    metadatas: List[List[dict]],
+) -> tuple[faiss.Index, List[dict]]:
+    """
+    Birden fazla FAISS IndexFlatIP'i tek bir index'e birleştir.
+    Her index'in boyutu aynı olmalı.
+    """
+    if not indexes:
+        raise ValueError("Birleştirilecek en az bir index gerekli")
+
+    dim = indexes[0].d
+    combined = faiss.IndexFlatIP(dim)
+    combined_meta: List[dict] = []
+    offset = 0
+    for idx, meta in zip(indexes, metadatas):
+        vectors = faiss.rev_swig_ptr(idx.get_xb(), idx.ntotal * dim).reshape(idx.ntotal, dim).copy()
+        combined.add(vectors.astype("float32"))
+        for m in meta:
+            entry = dict(m)
+            entry["chunk_id"] = offset
+            combined_meta.append(entry)
+            offset += 1
+    return combined, combined_meta
 
 
 def search(

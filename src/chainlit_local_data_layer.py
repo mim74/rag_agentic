@@ -128,7 +128,14 @@ class LocalDataLayer(BaseDataLayer):
     async def create_user(self, user: User) -> Optional[PersistedUser]:
         users = self._load_users()
         existing = users.get(user.identifier)
+
         if existing:
+            # Her girişte metadata'yı güncelle (role, can_access_shared vb.)
+            merged_meta = {**(existing.get("metadata") or {}), **(user.metadata or {})}
+            existing["metadata"] = merged_meta
+            existing["display_name"] = user.display_name
+            users[user.identifier] = existing
+            self._save_users(users)
             return PersistedUser(**existing)
 
         persisted = {

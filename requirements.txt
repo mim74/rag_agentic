@@ -1,5 +1,9 @@
 # rag_agentic — çalışma zamanı bağımlılıkları
-# PyTorch (CUDA/ROCm): https://pytorch.org — uyumlu wheel ile kurmanız önerilir.
+#
+# ÖNEMLİ: PyTorch bu dosyada YOK. Donanıma uygun (CPU/CUDA) sürümü
+# install.sh tarafından otomatik kurulur. Direkt `pip install -r requirements.txt`
+# yerine `./install.sh` kullanın.
+#
 # poppler-utils: pdf2image için sistem paketi (örn. sudo apt install poppler-utils)
 
 # Ayarlar ve HTTP
@@ -13,8 +17,7 @@ rich>=13.0.0
 numpy>=1.26.0
 faiss-cpu>=1.8.0
 
-# Embedding (BGE-m3 vb.) — torch ile birlikte kurulur
-torch>=2.4.0
+# Embedding (BGE-m3 vb.) — torch install.sh ile kurulur
 sentence-transformers>=3.0.0
 transformers>=4.40.0
 huggingface_hub>=0.24.0
@@ -31,6 +34,9 @@ Pillow>=10.0.0
 
 # ODT dışa aktarma
 odfpy>=1.4.1
+
+# MS Word (DOCX) metin çıkarma
+python-docx>=1.1.0
 
 # Web Arayüzü (GUI)
 chainlit>=1.0.0

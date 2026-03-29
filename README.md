@@ -21,22 +21,35 @@ PDF arşiviniz üzerinde **FAISS metin araması**, **ColPali (ColQwen) ile görs
 ## Kurulum
 
 ```bash
-git clone <repo-url> rag_agentic
+git clone https://github.com/mim74/rag_agentic.git rag_agentic
 cd rag_agentic
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+./install.sh
 ```
 
-PyTorch’u kendi donanımınıza göre [pytorch.org](https://pytorch.org) üzerinden kurmak genelde daha doğrudur; ardından `pip install -r requirements.txt` içindeki diğer paketler yeterlidir.
+`install.sh` ne yapar:
+- `.venv` oluşturur (yoksa)
+- Makinede NVIDIA GPU ve CUDA sürümünü algılar
+- **GPU varsa** CUDA'ya uygun PyTorch wheel'ini (cu121/cu124) kurar ve `settings.json` içindeki cihaz ayarlarını GPU profiline getirir
+- **GPU yoksa** CPU-only PyTorch kurar, `settings.json` tüm cihazları `"cpu"` olarak ayarlar
+- `requirements.txt` içindeki diğer bağımlılıkları kurar
 
-`config/settings.json` içinde `embedding.model_name` ve `colpali.model_name` Hugging Face repo kimliğidir; ağırlıklar `~/.cache/huggingface` (veya `HF_HOME`) altında saklanır. **Çevrimdışı:** `embedding` / `colpali` içinde `"local_files_only": true` ekleyin veya (anahtar yokken) `export HF_HUB_OFFLINE=1`. JSON’da açıkça `false` yazarsanız ortam değişkeni göz ardı edilir. Modellerin tamamı önbellekte olmalı; yoksa önce çevrimiçi çalıştırın.
+Ek seçenekler:
+```bash
+./install.sh --no-config   # settings.json'a dokunmadan kur
+./install.sh --dry-run     # ne yapacağını göster, dosya değiştirme
+```
+
+Ayarları elle yeniden uygulamak için:
+```bash
+.venv/bin/python scripts/configure_settings.py --profile cpu    # ya da cuda
+```
+
+`config/settings.json` içinde `embedding.model_name` ve `colpali.model_name` Hugging Face repo kimliğidir; ağırlıklar `~/.cache/huggingface` (veya `HF_HOME`) altında saklanır. **Çevrimdışı:** `embedding` / `colpali` içinde `"local_files_only": true` ekleyin veya (anahtar yokken) `export HF_HUB_OFFLINE=1`. JSON'da açıkça `false` yazarsanız ortam değişkeni göz ardı edilir. Modellerin tamamı önbellekte olmalı; yoksa önce çevrimiçi çalıştırın.
 
 ## Kullanım
 
-1. PDF’leri `pdfs/` klasörüne koyun.
-2. LM Studio’da modeli yükleyip API sunucusunu başlatın (`settings.json` → `lm_studio.base_url`).
-3. Uygulamayı çalıştırın:
+1. LM Studio'da modeli yükleyip API sunucusunu başlatın (`settings.json` → `lm_studio.base_url`).
+2. Uygulamayı Chainlit arayüzüyle başlatın:
 
 ```bash
 source .venv/bin/activate
@@ -44,9 +57,62 @@ python src/chat.py
 # veya: ./run.sh
 ```
 
-İlk açılışta metin indeksi (`indexes/pdf_index.*`) ve ColPali çıktıları (`indexes/colpali/`, `page_images/`) gerektiğinde oluşturulur; süre ve disk kullanımı PDF sayısına bağlıdır.
+İlk açılışta metin indeksleri ve ColPali çıktıları gerektiğinde oluşturulur.
 
-Sohbet komutları: `exit` / `q`, `save`, `export`. Her soru **agentic** pipeline ile işlenir. LM Studio zaman aşımında yedek olarak tek adımlı metin RAG (`rag_simple`) denenebilir.
+Sohbet komutları: `exit` / `q`, `save`, `export`. Her soru **agentic** pipeline ile işlenir.
+
+## Çok Kullanıcılı Yapı
+
+Chainlit arayüzü (`chainlit_app.py`) tam çok kullanıcılı modu destekler.
+
+### İlk Giriş (Admin)
+
+İlk kurulumda kullanıcı henüz `data/users.json`'da yok. Giriş için env değişkenleri kullanılır:
+
+```bash
+export CHAINLIT_APP_USERNAME=admin
+export CHAINLIT_APP_PASSWORD=admin123
+```
+
+Admin giriş yaptıktan sonra komutlarla kalıcı kullanıcılar eklenebilir.
+
+### Admin Komutları (sohbet kutusunda)
+
+| Komut | Açıklama |
+|---|---|
+| `/adduser ali gizli123` | Yeni kullanıcı ekle |
+| `/adduser ali gizli123 --shared` | Paylaşımlı belgelere de erişimli ekle |
+| `/removeuser ali` | Kullanıcıyı sil |
+| `/listusers` | Tüm kullanıcıları listele |
+| `/setshared ali on` | Ali'ye paylaşımlı erişim ver |
+| `/setshared ali off` | Ali'nin paylaşımlı erişimini kapat |
+| `/changepassword ali yeni123` | Şifre değiştir |
+| `/help` | Yardım |
+
+### Belge Yükleme (sohbet kutusunda)
+
+- Dosyayı mesaja ekle → **kişisel** belge klasörüne kaydedilir, index anında güncellenir
+- `/shared` yazıp dosya ekle → **paylaşımlı** alana kaydedilir (yalnızca admin)
+
+### Dizin Yapısı
+
+```
+docs/
+├── shared/          # Admin tarafından yüklenen ortak belgeler
+└── users/
+    ├── admin/       # Admin'in kişisel belgeleri
+    └── <kullanıcı>/ # Her kullanıcının kişisel belgeleri
+
+indexes/
+├── shared/          # Paylaşımlı FAISS indeksi
+└── users/
+    └── <kullanıcı>/ # Kullanıcıya özel FAISS indeksi
+
+data/
+└── users.json       # Kullanıcı kayıtları (şifreler hash+salt ile)
+```
+
+Kullanıcı giriş yaptığında: kendi indeksi + (yetkisi varsa) paylaşımlı indeks birleştirilerek sorgu için tek indeks oluşturulur. Paylaşımlı erişim değişikliği bir sonraki oturumda geçerli olur.
 
 ## Yapılandırma
 
@@ -67,37 +133,48 @@ Dosya: `config/settings.json` (JSON5: yorum ve sondaki virgül desteklenir).
 rag_agentic/
 ├── config/settings.json
 ├── src/
+│   ├── chainlit_app.py      # Chainlit arayüzü (çok kullanıcılı, dosya yükleme)
 │   ├── chat.py              # Giriş: metin + ColPali yükleme, sohbet döngüsü
+│   ├── user_manager.py      # Kullanıcı CRUD, şifre hash, dizin yardımcıları
 │   ├── rag_agentic.py       # ReAct döngüsü, görsel final birleştirme
 │   ├── rag_simple.py        # Tek atımlı metin RAG (yedek)
-│   ├── rag_colpali.py       # ColPali tek tur (vision); agent finalinde prompt paylaşımı
+│   ├── rag_colpali.py       # ColPali tek tur (vision)
 │   ├── colpali_retrieval.py # MaxSim, model yükleme
 │   ├── colpali_indexer.py   # PNG render, embedding üretimi
-│   ├── indexer.py           # FAISS, artımlı güncelleme, PDF manifest
-│   ├── pdf_loader.py
+│   ├── indexer.py           # FAISS, artımlı güncelleme, manifest
+│   ├── document_loader.py   # PDF / ODT / DOCX metin çıkarma
 │   ├── embedding.py
 │   ├── lm_studio_client.py
 │   ├── agent_tools.py
 │   └── odt_exporter.py
-├── pdfs/                    # Kaynak PDF’ler
-├── indexes/                 # pdf_index + colpali (git’e genelde eklenmez)
+├── docs/
+│   ├── shared/              # Admin'in yüklediği ortak belgeler
+│   └── users/<kullanıcı>/  # Kişisel belgeler
+├── indexes/
+│   ├── shared/              # Paylaşımlı FAISS indeksi
+│   └── users/<kullanıcı>/  # Kişisel FAISS indeksleri
+├── data/users.json          # Kullanıcı kayıtları (git'e eklenmez)
 ├── page_images/             # Render edilen sayfa görselleri
 ├── exports/                 # ODT çıktıları
-├── requirements.txt
+├── scripts/configure_settings.py
+├── install.sh
 ├── run.sh
 └── README.md
 ```
 
 ## İndeksi sıfırlama
 
-Metin indeksini baştan oluşturmak için:
-
+Belirli bir kullanıcının indeksini sıfırlamak:
 ```bash
-rm -f indexes/pdf_index.index indexes/pdf_index.json indexes/pdf_index.manifest.json
-python src/chat.py
+rm -rf indexes/users/<kullanıcı>/
 ```
 
-ColPali’yi sıfırlamak için `indexes/colpali/` ve isteğe bağlı `page_images/` silinebilir (yeniden oluşturma maliyetlidir).
+Paylaşımlı indeksi sıfırlamak:
+```bash
+rm -rf indexes/shared/
+```
+
+ColPali'yi sıfırlamak için `indexes/colpali/` ve isteğe bağlı `page_images/` silinebilir (yeniden oluşturma maliyetlidir).
 
 ## Sorun giderme
 

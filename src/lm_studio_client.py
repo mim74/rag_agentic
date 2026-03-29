@@ -146,9 +146,29 @@ class LMStudioClient:
         
         generation_time = time.time() - start_time
         data = response.json()
-        
-        # OpenAI format response parse
-        answer = data["choices"][0]["message"]["content"]
+
+        # OpenAI format response parse (defansif)
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or len(choices) == 0:
+            raise requests.exceptions.RequestException(
+                f"LM Studio geçersiz yanıt döndürdü: 'choices' boş veya yok. Yanıt: {data}"
+            )
+
+        first_choice = choices[0] if isinstance(choices[0], dict) else {}
+        message = first_choice.get("message") if isinstance(first_choice, dict) else None
+
+        answer = None
+        if isinstance(message, dict):
+            answer = message.get("content")
+
+        if answer is None and isinstance(first_choice, dict):
+            answer = first_choice.get("text")
+
+        if answer is None:
+            raise requests.exceptions.RequestException(
+                f"LM Studio geçersiz yanıt döndürdü: içerik bulunamadı. Yanıt: {data}"
+            )
+
         usage = data.get("usage", {})
         
         return {
@@ -295,10 +315,15 @@ class LMStudioClient:
 
                 try:
                     data = json.loads(data_str)
-                    delta = data['choices'][0].get('delta', {})
+                    choices = data.get("choices") if isinstance(data, dict) else None
+                    if not isinstance(choices, list) or len(choices) == 0:
+                        continue
 
-                    if 'content' in delta:
-                        yield delta['content']
+                    first_choice = choices[0] if isinstance(choices[0], dict) else {}
+                    delta = first_choice.get("delta", {}) if isinstance(first_choice, dict) else {}
+
+                    if isinstance(delta, dict) and "content" in delta:
+                        yield delta["content"]
 
                 except json.JSONDecodeError:
                     continue

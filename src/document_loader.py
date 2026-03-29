@@ -10,6 +10,7 @@ from odf import teletype
 from odf.opendocument import load as load_odt_document
 from odf.text import H, P
 from pypdf import PdfReader
+from docx import Document as DocxDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
@@ -42,6 +43,16 @@ def _extract_odt_text(odt_path: Path) -> str:
     return "\n\n".join(text_parts)
 
 
+def _extract_docx_text(docx_path: Path) -> str:
+    document = DocxDocument(str(docx_path))
+    text_parts = []
+    for paragraph in document.paragraphs:
+        extracted = clean_text(paragraph.text)
+        if extracted:
+            text_parts.append(extracted)
+    return "\n\n".join(text_parts)
+
+
 def load_documents(
     document_dir: Path,
     chunk_size: int = 1000,
@@ -63,7 +74,11 @@ def load_documents(
         DocumentChunk listesi
     """
     if document_files is None:
-        document_files = sorted([*document_dir.rglob("*.pdf"), *document_dir.rglob("*.odt")])
+        document_files = sorted([
+            *document_dir.rglob("*.pdf"),
+            *document_dir.rglob("*.odt"),
+            *document_dir.rglob("*.docx")
+        ])
 
     if not document_files:
         raise ValueError(f"Desteklenen belge bulunamadı: {document_dir}")
@@ -103,6 +118,20 @@ def load_documents(
             elif document_path.suffix.lower() == ".odt":
                 text = _extract_odt_text(document_path)
                 print(f"   📝 {source_name} (ODT)")
+                if not text:
+                    continue
+                chunks = splitter.split_text(text)
+                for chunk_text in chunks:
+                    all_chunks.append(DocumentChunk(
+                        text=chunk_text,
+                        source=source_name,
+                        page=1,
+                        chunk_id=chunk_counter
+                    ))
+                    chunk_counter += 1
+            elif document_path.suffix.lower() == ".docx":
+                text = _extract_docx_text(document_path)
+                print(f"   📝 {source_name} (DOCX)")
                 if not text:
                     continue
                 chunks = splitter.split_text(text)
