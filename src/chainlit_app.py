@@ -1,6 +1,8 @@
 import os
 import shutil
 import sys
+import json
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +17,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.append(str(PROJECT_ROOT / "src"))
 
 from chainlit_local_data_layer import LocalDataLayer
-from chat import _load_colpali_model_and_index, initialize_system, load_settings
+from chat import _load_colpali_model_and_index, initialize_system, load_settings, rebuild_index
 from embedding import EmbeddingModel
 from hf_load_hacks import resolve_hf_local_files_only
 from lm_studio_client import LMStudioClient
@@ -41,6 +43,53 @@ from user_manager import (
 
 LOCAL_DATA_DIR = PROJECT_ROOT / "exports" / "chainlit_datalayer"
 SUPPORTED_EXTENSIONS = {".pdf", ".odt", ".docx"}
+
+_DEBUG_LOG_PATH = "/home/ahmet/gelistirilenler/rag_agentic/.cursor/debug-6e8adf.log"
+
+
+def _dbg_log(*, hypothesisId: str, location: str, message: str, data: dict, runId: str = "pre-fix"):
+    try:
+        payload = {
+            "sessionId": "6e8adf",
+            "runId": runId,
+            "hypothesisId": hypothesisId,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _count_supported_files(dir_path: Optional[Path]) -> int:
+    if not dir_path:
+        return 0
+    try:
+        if not dir_path.exists():
+            return 0
+        return sum(1 for p in dir_path.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS)
+    except Exception:
+        return 0
+
+
+def _effective_can_access_shared(user_record: dict) -> bool:
+    role = user_record.get("role", "user")
+    if role == ROLE_ADMIN:
+        return True
+    return bool(user_record.get("can_access_shared", False))
+
+
+# #region agent log
+_dbg_log(
+    hypothesisId="H0",
+    location="src/chainlit_app.py:module_import",
+    message="chainlit_app imported",
+    data={"pid": os.getpid(), "cwd": os.getcwd()},
+)
+# #endregion
 
 
 @cl.data_layer
@@ -77,11 +126,12 @@ def auth_callback(username: str, password: str) -> Optional[User]:
     user_record = verify_password(username, password)
     if user_record is None:
         return None
+    can_shared = _effective_can_access_shared(user_record)
     return User(
         identifier=username,
         metadata={
             "role": user_record.get("role", "user"),
-            "can_access_shared": user_record.get("can_access_shared", False),
+            "can_access_shared": can_shared,
             "provider": "credentials",
         },
     )
@@ -94,12 +144,15 @@ def _user_record_from_session() -> dict:
     username = cl.user_session.get("username") or ""
     record = get_user(username)
     if record:
+        record = dict(record)
+        record["can_access_shared"] = _effective_can_access_shared(record)
         return record
     cl_user = context.session.user
     meta = getattr(cl_user, "metadata", {}) or {}
+    role = meta.get("role", "user")
     return {
-        "role": meta.get("role", "user"),
-        "can_access_shared": meta.get("can_access_shared", False),
+        "role": role,
+        "can_access_shared": True if role == ROLE_ADMIN else meta.get("can_access_shared", False),
     }
 
 
@@ -114,12 +167,63 @@ async def _load_user_system(
 
     doc_dir = user_docs_dir(username)
     idx_path = user_index_path(username)
-    can_shared = user_record.get("can_access_shared", False)
+    can_shared = _effective_can_access_shared(user_record)
 
     shared_doc = shared_docs_dir() if can_shared else None
     shared_idx = shared_index_path() if can_shared else None
 
+    # Config'i erken al: fallback index path'i hesaplamak için gerekli.
     embedding_model, lm_client, config = await cl.make_async(_get_heavy_components)()
+
+    # Hipotez H6/H7: Chainlit kullanıcı+shared index yolunu seçiyor → terminaldeki mevcut index kullanılmıyor
+    # ve ilk açılışta 444 PDF'yi yeniden indeksliyor; bu da GUI'nin "başlatılıyor"da uzun süre kalması.
+    project_docs = PROJECT_ROOT / "docs"
+    project_index_path = PROJECT_ROOT / config["index"]["output_path"]
+
+    user_files = _count_supported_files(doc_dir)
+    shared_files = _count_supported_files(shared_doc)
+    project_files = _count_supported_files(project_docs)
+
+    def _index_exists(p: Path) -> bool:
+        try:
+            return Path(str(p) + ".index").exists()
+        except Exception:
+            return False
+
+    _dbg_log(
+        hypothesisId="H7",
+        location="src/chainlit_app.py:_load_user_system:paths_pre",
+        message="paths before fallback",
+        data={
+            "username": username,
+            "doc_dir": str(doc_dir),
+            "idx_path": str(idx_path),
+            "idx_exists": _index_exists(idx_path),
+            "can_shared": bool(can_shared),
+            "shared_doc": str(shared_doc) if shared_doc else None,
+            "shared_idx": str(shared_idx) if shared_idx else None,
+            "shared_idx_exists": _index_exists(shared_idx) if shared_idx else None,
+            "project_docs": str(project_docs),
+            "project_index_path": str(project_index_path),
+            "project_idx_exists": _index_exists(project_index_path),
+            "user_files": user_files,
+            "shared_files": shared_files,
+            "project_files": project_files,
+        },
+    )
+
+    # Kullanıcı+shared boş ama proje docs doluysa: terminal akışı gibi proje docs + proje index kullan.
+    if user_files == 0 and shared_files == 0 and project_files > 0:
+        doc_dir = project_docs
+        idx_path = project_index_path
+        shared_doc = None
+        shared_idx = None
+        _dbg_log(
+            hypothesisId="H7",
+            location="src/chainlit_app.py:_load_user_system:fallback_project_docs_and_index",
+            message="fallback to project docs+index",
+            data={"doc_dir": str(doc_dir), "idx_path": str(idx_path)},
+        )
 
     _, index, metadata, _, _ = await cl.make_async(initialize_system)(
         config,
@@ -128,6 +232,15 @@ async def _load_user_system(
         shared_document_dir=shared_doc,
         shared_index_path=shared_idx,
         embedding_model=embedding_model,
+    )
+    _dbg_log(
+        hypothesisId="H6",
+        location="src/chainlit_app.py:_load_user_system:init_done",
+        message="initialize_system done",
+        data={
+            "index_ntotal": int(getattr(index, "ntotal", -1)),
+            "metadata_len": len(metadata or []),
+        },
     )
 
     colpali_state = None
@@ -357,7 +470,101 @@ _ADMIN_HELP = """\
 **Dosya yükleme:**
 - Mesaja dosya ekle → kişisel belge klasörünüze kaydedilir
 - `/shared` yazıp dosya ekle → paylaşımlı alana kaydedilir
+
+**Kişisel belgeler (her kullanıcı):**
+- `/mydocs` — kendi yüklediğiniz belgeleri listele
+- `/deldoc <dosya_adı>` — kendi belgenizi sil (silme sonrası kişisel index yeniden oluşturulur)
 """
+
+
+def _safe_filename(name: str) -> str:
+    # Path traversal engeli (sadece basename)
+    return Path(name).name
+
+
+async def _handle_user_docs_command(text: str) -> bool:
+    parts = text.strip().split(maxsplit=1)
+    cmd = (parts[0] if parts else "").lower()
+    username = cl.user_session.get("username") or "anonymous"
+
+    if cmd == "/mydocs":
+        d = user_docs_dir(username)
+        d.mkdir(parents=True, exist_ok=True)
+        files = sorted(
+            [p for p in d.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS],
+            key=lambda p: (p.suffix.lower(), p.name.lower()),
+        )
+        if not files:
+            await cl.Message("Kişisel klasörünüzde belge yok. Dosya ekleyip tekrar deneyin.").send()
+            return True
+        lines = ["**Kişisel Belgeleriniz:**", ""]
+        for p in files[:200]:
+            try:
+                size_kb = int(p.stat().st_size / 1024)
+            except Exception:
+                size_kb = "?"
+            lines.append(f"- `{p.name}` ({size_kb} KB)")
+        if len(files) > 200:
+            lines.append(f"\n… ve {len(files) - 200} dosya daha")
+        lines.append("\nSilmek için: `/deldoc <dosya_adı>`")
+        await cl.Message("\n".join(lines)).send()
+        return True
+
+    if cmd == "/deldoc":
+        if len(parts) < 2 or not parts[1].strip():
+            await cl.Message("Kullanım: `/deldoc <dosya_adı>`").send()
+            return True
+        raw_name = parts[1].strip()
+        fname = _safe_filename(raw_name)
+        if Path(fname).suffix.lower() not in SUPPORTED_EXTENSIONS:
+            await cl.Message(
+                "❌ Bu uzantı desteklenmiyor. Desteklenenler: "
+                + ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            ).send()
+            return True
+        target = user_docs_dir(username) / fname
+        try:
+            if not target.exists() or not target.is_file():
+                await cl.Message(f"❌ Dosya bulunamadı: `{fname}`").send()
+                return True
+            target.unlink()
+        except Exception as exc:
+            await cl.Message(f"❌ Dosya silinemedi: {exc}").send()
+            return True
+
+        msg = await cl.Message("🗑️ Dosya silindi. Index yeniden oluşturuluyor…").send()
+
+        # Silme işlemi incremental update ile doğru yansımaz; kişisel index'i sıfırdan kur.
+        embedding_model = cl.user_session.get("embedding_model")
+        config = cl.user_session.get("config")
+        if embedding_model is None or config is None:
+            await msg.update(content="🗑️ Dosya silindi ama sistem yeniden yüklenemedi (oturum bilgisi eksik).")
+            return True
+
+        doc_dir = user_docs_dir(username)
+        idx_path = user_index_path(username)
+
+        def _rebuild():
+            return rebuild_index(
+                config=config,
+                document_dir=doc_dir,
+                index_path=idx_path,
+                embedding_model=embedding_model,
+            )
+
+        try:
+            await cl.make_async(_rebuild)()
+            # oturumu tekrar yükle (shared merge dahil)
+            user_record = _user_record_from_session()
+            await _load_user_system(username, user_record)
+            msg.content = f"✅ `{fname}` silindi ve kişisel index güncellendi."
+            await msg.update()
+        except Exception as exc:
+            msg.content = f"⚠️ `{fname}` silindi ancak index yeniden oluşturulamadı: {exc}"
+            await msg.update()
+        return True
+
+    return False
 
 
 async def _handle_admin_command(text: str) -> bool:
@@ -467,6 +674,8 @@ async def on_message(message: cl.Message):
 
     # Komut kontrolü: / ile başlayan hiçbir şey RAG'a düşmez
     if text.startswith("/"):
+        if await _handle_user_docs_command(text):
+            return
         if not await _handle_admin_command(text):
             await cl.Message("❓ Bilinmeyen komut veya yetki eksik. `/help` yazın.").send()
         return

@@ -446,6 +446,19 @@ def agentic_rag(
                 top_k=search_top_k
             )
             logger.debug("SEARCH sonucu: %d chunk bulundu", len(results))
+
+            # Boş index/metadata: SEARCH kaçınılmaz olarak 0 döner.
+            # Bu durumda büyük bir final LLM çağrısı yapmak hem yavaş hem de yanıltıcı.
+            try:
+                idx_total = int(getattr(index, "ntotal", 0))
+            except Exception:
+                idx_total = 0
+            if (not metadata) and idx_total <= 0:
+                final_answer = (
+                    "Şu anda arama yapılacak bir index yok (belge/chunk bulunamadı). "
+                    "Lütfen önce belge yükleyin ve index'in oluştuğundan emin olun, sonra tekrar sorun."
+                )
+                break
             
             # Sonucu hafızaya ekle
             search_result = SearchResult(query=action.query, chunks=results)

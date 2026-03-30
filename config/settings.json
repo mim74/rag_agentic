@@ -22,7 +22,7 @@
     // "cuda" = Use first available GPU
     // "cuda:0", "cuda:1" = Use specific GPU by index
     // "cpu" = Force CPU usage
-    "device": "cpu",
+    "device": "cuda:0",
     
     // GPU type preference for multi-GPU systems (optional)
     // Values: "amd" or "nvidia"
@@ -42,7 +42,7 @@
     // "auto" = Keep on same device as indexing
     // "cuda", "cuda:1" = Specific GPU for chat
     // Recommendation: "cpu" if GPU memory is limited, "auto" for speed
-    "chat_device": "cpu",
+    "chat_device": "cuda:0",
     
     // Text chunk size in characters (range: 256-2048 recommended)
     // Larger chunks: more context, fewer chunks, less precise retrieval
@@ -233,7 +233,7 @@
     // İndeksleme: "cpu" | "cuda:0" | "balanced" | "multi"
     // balanced = cuda:0 + CPU/RAM taşması; cuda:1/2 bu aşamada kullanılmaz (ColQwen shard sınırı)
     // multi = her GPU'ya tam kopya, sayfalar paralel (VRAM ≈ N × model)
-    "index_device": "cpu",
+    "index_device": "multi",
 
     // Yalnızca index_device "balanced": cuda:0 için VRAM üst sınırı (kartın oranı 0.35–0.95). OOM olursa düşür (ör. 0.55)
     // "balanced_gpu_memory_fraction": 0.55,
@@ -243,7 +243,7 @@
     // "cuda:1", "cuda:2" → Belirli GPU
     // "cpu"  → CPU'da çalışır (1-2s yavaş ama sıfır VRAM — LM Studio için önerilir)
     // "auto" → CUDA varsa GPU, yoksa CPU
-    "retrieval_device": "cpu",
+    "retrieval_device": "cuda:0",
 
     // Quantization (GPU kullanırken VRAM kullanımını azaltır)
     // null  → Quantization yok (varsayılan, en iyi kalite)

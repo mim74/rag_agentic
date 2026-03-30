@@ -177,6 +177,42 @@ def initialize_system(
     return embedding_model, index, metadata, lm_client, config
 
 
+def rebuild_index(
+    *,
+    config: Dict[str, Any],
+    document_dir: Path,
+    index_path: Path,
+    embedding_model: EmbeddingModel,
+) -> tuple:
+    """
+    Belirtilen dizin için index'i sıfırdan oluşturur ve kaydeder.
+    (index, metadata) döndürür.
+    """
+    emb_config = config["embedding"]
+
+    # Dizin boşsa boş index üret
+    if not document_dir.exists() or not any(document_dir.rglob("*.*")):
+        import faiss as _faiss
+
+        dim = embedding_model.model.get_sentence_embedding_dimension()
+        index = _faiss.IndexFlatIP(dim)
+        metadata: List[dict] = []
+        save_index(index, metadata, index_path)
+        sync_full_directory_manifest(document_dir, index_path)
+        return index, metadata
+
+    index, metadata = build_index(
+        document_dir=document_dir,
+        embedding_model=embedding_model,
+        chunk_size=emb_config["chunk_size"],
+        chunk_overlap=emb_config["chunk_overlap"],
+        batch_size=emb_config["batch_size"],
+    )
+    save_index(index, metadata, index_path)
+    sync_full_directory_manifest(document_dir, index_path)
+    return index, metadata
+
+
 def _load_colpali_model_and_index(config: Dict[str, Any]) -> tuple:
     """ColPali model + sayfa index'i (LM Studio olmadan; metin pipeline eklentisi için)."""
     from colpali_retrieval import load_colpali_model

@@ -312,6 +312,9 @@ def search(
     Returns:
         [(metadata_dict, similarity_score), ...]
     """
+    # Boş index/metadata durumunda FAISS -1 indeksleri döndürebilir; bunu erken ele al.
+    if not metadata or int(getattr(index, "ntotal", 0)) <= 0 or top_k <= 0:
+        return []
     # 1. Sorguda geçen dosya adlarını (source) bul
     query_lower = query.lower()
     all_sources = set(m.get("source", "") for m in metadata if m.get("source"))
@@ -352,13 +355,17 @@ def search(
     
     # 4. Sonuçları birleştir
     results = exact_matches.copy()
-    for score, idx in zip(scores[0], indices[0]):
-        if idx < len(metadata):
-            m = metadata[idx]
-            chunk_id = m.get("chunk_id", str(m.get("text", ""))[:50])
-            if chunk_id not in seen_chunks:
-                results.append((m, float(score)))
-                seen_chunks.add(chunk_id)
+    try:
+        for score, idx in zip(scores[0], indices[0]):
+            # FAISS boş/uygunsuz durumlarda -1 döndürebilir; negatif indeksleri reddet.
+            if isinstance(idx, (int, np.integer)) and 0 <= int(idx) < len(metadata):
+                m = metadata[int(idx)]
+                chunk_id = m.get("chunk_id", str(m.get("text", ""))[:50])
+                if chunk_id not in seen_chunks:
+                    results.append((m, float(score)))
+                    seen_chunks.add(chunk_id)
+    except Exception:
+        raise
                 
     # Skora göre büyükten küçüğe sırala ve top_k kadarını döndür
     results.sort(key=lambda x: x[1], reverse=True)

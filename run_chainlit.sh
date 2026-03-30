@@ -14,5 +14,7 @@ echo "Chainlit arayüzü başlatılıyor..."
 echo "Uygulama tarayıcınızda http://localhost:8000 adresinde açılacaktır."
 echo "Giriş bilgileri: ${CHAINLIT_APP_USERNAME} / ${CHAINLIT_APP_PASSWORD}"
 
-# Chainlit uygulamasını başlat (-w ile dosya değişikliklerini anında algılar)
-chainlit run src/chainlit_app.py -w --port 8000
+# Chainlit uygulamasını başlat
+# Not: -w (watch) index oluşturma sırasında indexes/ altında dosyalar yazıldıkça
+# restart tetikleyip yeniden indexlemeye sebep olabiliyor.
+chainlit run src/chainlit_app.py --port 8000
